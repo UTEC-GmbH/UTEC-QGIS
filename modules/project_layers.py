@@ -10,7 +10,7 @@ from qgis.core import (
     QgsVectorLayer,
 )
 
-TEST_PROJECT_PATH: str = r"C:\Users\fl\Documents\Python\Thermos Output\thermos.qgz"
+TEST_PROJECT_PATH: str = "Thermos Output for Testing/thermos.qgz"
 
 
 def load_project(project_path: str = TEST_PROJECT_PATH) -> QgsProject:
