@@ -18,7 +18,9 @@ def load_project(project_path: str = TEST_PROJECT_PATH) -> QgsProject:
     project: QgsProject | None = QgsProject.instance()
     if not project:
         raise ValueError
-    project.read(project_path)
+
+    if not project.mapLayers():
+        project.read(project_path)
 
     return project
 
@@ -45,10 +47,10 @@ def add_layer_group(
 ) -> None:
     """Add a layer group to a QGIS project"""
     proj: QgsProject = qgis_project or load_project()
-    root: QgsLayerTree | None = proj.layerTreeRoot()
-    if not root:
+    if root := proj.layerTreeRoot():
+        root.addGroup(group_name)
+    else:
         raise ValueError
-    root.addGroup(group_name)
 
 
 def add_temporary_layer(
