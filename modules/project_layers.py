@@ -2,7 +2,10 @@
 
 # pylint: disable=no-name-in-module
 
+from dataclasses import dataclass, field
+
 from qgis.core import (
+    Qgis,
     QgsLayerTree,
     QgsLayerTreeGroup,
     QgsMapLayer,
@@ -10,10 +13,59 @@ from qgis.core import (
     QgsVectorLayer,
 )
 
-TEST_PROJECT_PATH: str = "Thermos Output for Testing/thermos.qgz"
+from modules import constants as cont
 
 
-def load_project(project_path: str = TEST_PROJECT_PATH) -> QgsProject:
+@dataclass
+class ThermosLayers:
+    """Layers from Thermos results"""
+
+    pipes: QgsVectorLayer = field(init=False)
+    buildings: QgsVectorLayer = field(init=False)
+
+    def __post_init__(self) -> None:
+        """Fill class attributes"""
+        project: QgsProject | None = QgsProject.instance()
+        if not project:
+            raise ValueError
+        if not project.mapLayers():
+            project.read(cont.TEST_PROJECT_PATH)
+
+        for layer in project.mapLayers().values():
+            if self.is_pipeline_layer(layer):
+                self.pipes = layer
+            if self.is_building_layer(layer):
+                self.buildings = layer
+
+    def is_pipeline_layer(self, layer: QgsMapLayer) -> bool:
+        """Check if the given layer is a pipeline layer"""
+        return (
+            self.is_thermos_result_layer(layer)
+            and layer.geometryType() == Qgis.GeometryType.Line  # type: ignore
+        )
+
+    def is_building_layer(self, layer: QgsMapLayer) -> bool:
+        """Check if the given layer is a building layer"""
+        return (
+            self.is_thermos_result_layer(layer)
+            and layer.geometryType() == Qgis.GeometryType.Polygon  # type: ignore
+        )
+
+    def is_thermos_result_layer(self, layer: QgsMapLayer) -> bool:
+        """Check if the given layer is a layer from Thermos results"""
+        return (
+            layer.isValid()
+            and layer.name() != "OpenStreetMap"
+            and isinstance(layer, QgsVectorLayer)
+            and layer.featureCount() > 0
+            and all(
+                field_name in layer.fields().names()
+                for field_name in cont.THERMOS_FIELD_NAMES
+            )
+        )
+
+
+def load_project(project_path: str = cont.TEST_PROJECT_PATH) -> QgsProject:
     """Open a QGIS Project using the path to the project file"""
     project: QgsProject | None = QgsProject.instance()
     if not project:
@@ -47,8 +99,8 @@ def add_layer_group(
 ) -> None:
     """Add a layer group to a QGIS project"""
     proj: QgsProject = qgis_project or load_project()
-    if root := proj.layerTreeRoot():
-        root.addGroup(group_name)
+    if layer_tree_root := proj.layerTreeRoot():
+        layer_tree_root.addGroup(group_name)
     else:
         raise ValueError
 
