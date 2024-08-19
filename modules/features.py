@@ -1,89 +1,198 @@
 """Features and attributes"""
 
 # pylint: disable=no-name-in-module
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 
-from qgis.core import (
-    Qgis,
-    QgsFeature,
-    QgsProject,
-)
+from qgis.core import Qgis, QgsDistanceArea, QgsFeature, QgsGeometry, QgsPointXY
 
 from modules import constants as cont
 from modules import project_layers as prl
 
-PROJ: QgsProject = prl.load_project()
+
+@dataclass
+class Building:
+    """Building feature"""
+
+    feature: QgsFeature
+    attributes: dict = field(init=False)
+    geometry: QgsGeometry = field(init=False)
+    area_roof: float | None = None
+    area_ground: float | None = None
+    demand_cap_cooling: float | None = None
+    demand_cap_heat: float | None = None
+    demand_cap_ww: float | None = None
+    demand_cons_cooling: float | None = None
+    demand_cons_heat: float | None = None
+    demand_cons_ww: float | None = None
+    height: int | None = None
+    id: str | None = None
+    in_solution: bool | None = None
+    point_id_connection: str | None = None
+    supply_capacity: int | None = None
+
+    def __post_init__(self) -> None:
+        """Fill class attributes"""
+        self.attributes = self.feature.attributeMap()
+        self.geometry = self.feature.geometry()
+        for attr in fields(self):
+            field_name: str | None = getattr(cont.ThermosFields, attr.name, None)
+            if (
+                attr.name not in ["feature", "attributes", "geometry"]
+                and isinstance(field_name, str)
+                and isinstance(self.attributes.get(field_name), attr.type)  # type: ignore[argument-type]
+            ):
+                setattr(self, attr.name, self.attributes.get(field_name))
 
 
 @dataclass
-class Features:
-    """Features and attributes"""
+class Pipe:
+    """Pipe feature"""
 
-    all_pipes: list[QgsFeature] = field(init=False)
-    connectors: list[QgsFeature] = field(init=False)
-    links: list[QgsFeature] = field(init=False)
-    all_buildings: list[QgsFeature] = field(init=False)
-    closest_building: dict[QgsFeature, QgsFeature] = field(init=False)
+    feature: QgsFeature
+    attributes: dict = field(init=False)
+    geometry: QgsGeometry = field(init=False)
+    id: str | None = None
+    connected_buildings: list[Building] | Building | None = None
+    point_id_end: str | None = None
+    point_id_start: str | None = None
+    diameter: int | None = None
+    length: int | None = None
+    capacity: int | None = None  # Heizleistung in Leitung
+    diversity: float | None = None  # Gleichzeitigkeitsfaktor
+
+    def __post_init__(self) -> None:
+        """Fill class attributes"""
+        self.attributes = self.feature.attributeMap()
+        self.geometry = self.feature.geometry()
+        for attr in fields(self):
+            field_name: str | None = getattr(cont.ThermosFields, attr.name, None)
+            if (
+                attr.name not in ["feature", "attributes", "geometry"]
+                and isinstance(field_name, str)
+                and isinstance(self.attributes.get(field_name), attr.type)  # type: ignore[argument-type]
+            ):
+                setattr(self, attr.name, self.attributes.get(field_name))
+
+
+@dataclass
+class ThermosFeatures:
+    """Features and attributes in solution"""
+
+    all_pipes: list[Pipe] = field(init=False)
+    all_buildings: list[Building] = field(init=False)
+    connectors: list[Pipe] = field(init=False)
+    links: list[Pipe] = field(init=False)
 
     def __post_init__(self) -> None:
         """Fill class attributes"""
         thermos_layers = prl.ThermosLayers()
-        self.all_pipes = list(thermos_layers.pipes.getFeatures())
-        self.all_buildings = list(thermos_layers.buildings.getFeatures())
-        self.connectors = list(filter(self.is_connector, self.all_pipes))
+        self.all_pipes = [
+            Pipe(feat)
+            for feat in list(thermos_layers.pipes.getFeatures())  # type: ignore[reportArgumentType]
+            if self.check_pipe(feat)
+        ]
+        self.all_buildings = [
+            Building(feat)
+            for feat in list(thermos_layers.buildings.getFeatures())  # type: ignore[reportArgumentType]
+            if self.check_building(feat)
+        ]
+        for pipe in self.all_pipes:
+            pipe.connected_buildings = self.directly_connected_building(pipe)
 
-    def is_connector(self, feature: QgsFeature) -> bool:
-        """Check if the given feature is a connector"""
+        self.connectors = [pipe for pipe in self.all_pipes if pipe.connected_buildings]
+        self.links = [pipe for pipe in self.all_pipes if pipe not in self.connectors]
+
+    def check_pipe(self, feature: QgsFeature) -> bool:
+        """Check if a given feature is a pipe"""
         return (
-            feature.attribute(cont.ThermosFields.type) == "Connector"
-            and feature.attribute(cont.ThermosFields.in_solution)
+            feature.attribute(cont.ThermosFields.in_solution)
             and feature.geometry().type() == Qgis.GeometryType.Line
         )
 
+    def check_building(self, feature: QgsFeature) -> bool:
+        """Check if a given feature is a building"""
+        return (
+            feature.attribute(cont.ThermosFields.in_solution)
+            and feature.geometry().type() == Qgis.GeometryType.Polygon
+        )
 
-# def get_all_connectors(layer_name: str = "Trassen") -> list[QgsFeature]:
-#     """Get all features in the given layer"""
-#     layer: QgsMapLayer = prl.get_layer(layer_name)
-#     features: QgsFeatureIterator = layer.getFeatures()
-#     return list(filter(is_connector, features))
+    def get_building_by_id(self, id_str: str) -> Building | None:
+        """Return the building with the given id"""
+        return next(bldg for bldg in self.all_buildings if bldg.id == id_str)
 
+    def directly_connected_building(self, pipe: Pipe) -> Building | None:
+        """Return the building directly connected to the given pipe"""
+        buildings_close_to_pipe: list[Building] = [
+            building
+            for building in self.all_buildings
+            if any(
+                self.point_near_polygon(point, building.geometry)
+                for point in pipe.geometry.asPolyline()
+            )
+        ]
+        if not buildings_close_to_pipe:
+            return None
 
-# def find_closest_polygon(
-#     line_layer_name: str = "Trassen",
-#     polygon_layer_name: str = "Gebäude",
-# ) -> dict:
-#     # Load the layers
-#     line_layer: QgsMapLayer = prl.get_layer(line_layer_name)
-#     polygon_layer: QgsMapLayer = prl.get_layer(polygon_layer_name)
+        if len(buildings_close_to_pipe) == 1:
+            return buildings_close_to_pipe[0]
 
-#     closest_building: dict = {}
+        return_list: list[Building] = buildings_close_to_pipe.copy()
+        for building in buildings_close_to_pipe:
+            for pip in [pi for pi in self.all_pipes if pi != pipe]:
+                if any(
+                    self.point_near_polygon(point, building.geometry)
+                    for point in pip.geometry.asPolyline()
+                ):
+                    return_list.remove(building)
+        return return_list[0]
 
-#     # Iterate through each line in the line layer
-#     for line_feature in line_layer.getFeatures():
-#         line_geom = line_feature.geometry()
-#         min_distance = float("inf")
-#         closest_polygon = None
+    def point_near_polygon(
+        self, point: QgsPointXY, building: QgsGeometry, tolerance: float = 0.01
+    ) -> bool:
+        """Check if a point is in, on or near a polygon"""
+        point_geom: QgsGeometry = QgsGeometry.fromPointXY(point)
+        shortest_line: QgsGeometry = point_geom.shortestLine(building)
 
-#         # Iterate through each polygon in the polygon layer
-#         for polygon_feature in polygon_layer.getFeatures():
-#             polygon_geom = polygon_feature.geometry()
-#             distance = line_geom.distance(polygon_geom)
+        # Create a QgsDistanceArea object to calculate distances
+        distance_area_object: QgsDistanceArea = QgsDistanceArea()
+        distance_area_object.setEllipsoid("WGS84")  # "WGS84" is the default
 
-#             # Check if this polygon is closer than the previous closest
-#             if distance < min_distance:
-#                 min_distance = distance
-#                 closest_polygon = polygon_feature
+        return (
+            building.contains(point_geom)
+            or building.intersects(point_geom)
+            or distance_area_object.measureLength(shortest_line) < tolerance
+        )
 
-#         # Store the closest polygon for this line
-#         closest_building[line_feature.id()] = closest_polygon.id()
+    def problematic_buildings(
+        self, *, return_ids: bool = True
+    ) -> dict[str, list[Building]] | dict[str, list[str]]:
+        """Check if all buildings are connected"""
+        directly_connected_buildings: list[Building] = [
+            pipe.connected_buildings
+            for pipe in self.all_pipes
+            if isinstance(pipe.connected_buildings, Building)
+        ]
+        wo: str = "buildings without connector"
+        multi: str = "buildings with multiple connectors"
+        dic: dict[str, list[Building]] = {
+            wo: [
+                building
+                for building in self.all_buildings
+                if building not in directly_connected_buildings
+            ],
+            multi: [
+                building
+                for building in self.all_buildings
+                if directly_connected_buildings.count(building) > 1
+                and not building.supply_capacity
+            ],
+        }
 
-#     return closest_building
-
-
-# # Example usage
-# line_layer_name = "Lines"
-# polygon_layer_name = "Polygons"
-# closest_polygons = find_closest_polygon(line_layer_name, polygon_layer_name)
-
-# for line_id, polygon_id in closest_polygons.items():
-#     print(f"Line {line_id} is closest to Polygon {polygon_id}")
+        return (
+            {
+                wo: sorted([b.id for b in dic[wo] if b.id], key=str.lower),
+                multi: sorted([b.id for b in dic[multi] if b.id], key=str.lower),
+            }
+            if return_ids
+            else dic
+        )
