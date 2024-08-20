@@ -14,6 +14,7 @@ from qgis.core import (
 )
 
 from modules import constants as cont
+from modules import exceptions as ex
 
 
 @dataclass
@@ -27,7 +28,7 @@ class ThermosLayers:
         """Fill class attributes"""
         project: QgsProject | None = QgsProject.instance()
         if not project:
-            raise ValueError
+            raise ex.NoProjectError
         if not project.mapLayers():
             project.read(cont.TEST_PROJECT_PATH)
 
@@ -69,7 +70,7 @@ def load_project(project_path: str = cont.TEST_PROJECT_PATH) -> QgsProject:
     """Open a QGIS Project using the path to the project file"""
     project: QgsProject | None = QgsProject.instance()
     if not project:
-        raise ValueError
+        raise ex.NoProjectError
 
     if not project.mapLayers():
         project.read(project_path)
@@ -102,7 +103,7 @@ def add_layer_group(
     if layer_tree_root := proj.layerTreeRoot():
         layer_tree_root.addGroup(group_name)
     else:
-        raise ValueError
+        raise ex.LayerTreeError
 
 
 def add_temporary_layer(
@@ -115,13 +116,13 @@ def add_temporary_layer(
     proj: QgsProject = qgis_project or load_project()
     root: QgsLayerTree | None = proj.layerTreeRoot()
     if not root:
-        raise ValueError
+        raise ex.LayerTreeError
 
     # Create a temporary layer (Example: memory layer)
     layer_type_string: str = f"{layer_type}?crs={proj.crs().authid()}"
     new_tmp_layer = QgsVectorLayer(layer_type_string, layer_name, "memory")
     if not new_tmp_layer.isValid():
-        raise ValueError
+        raise ex.NewLayerInvalidError(layer_name)
 
     if group_name:
         # Check if the group exists, if not, create it

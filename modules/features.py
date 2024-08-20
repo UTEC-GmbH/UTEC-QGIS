@@ -2,10 +2,12 @@
 
 # pylint: disable=no-name-in-module
 from dataclasses import dataclass, field, fields
+from typing import Self
 
 from qgis.core import Qgis, QgsDistanceArea, QgsFeature, QgsGeometry, QgsPointXY
 
 from modules import constants as cont
+from modules import exceptions as ex
 from modules import project_layers as prl
 
 
@@ -53,6 +55,7 @@ class Pipe:
     geometry: QgsGeometry = field(init=False)
     id: str | None = None
     connected_buildings: list[Building] | Building | None = None
+    connected_pipes: list[Self] | Self | None = None
     point_id_end: str | None = None
     point_id_start: str | None = None
     diameter: int | None = None
@@ -96,8 +99,17 @@ class ThermosFeatures:
             for feat in list(thermos_layers.buildings.getFeatures())  # type: ignore[reportArgumentType]
             if self.check_building(feat)
         ]
+
         for pipe in self.all_pipes:
             pipe.connected_buildings = self.directly_connected_building(pipe)
+
+        for pipe in [
+            pip
+            for pip in self.all_pipes
+            if isinstance(pip.connected_buildings, list)
+            and len(pip.connected_buildings) > 1
+        ]:
+            self.clean_up_pipe_connected_to_multi_bldg(pipe)
 
         self.connectors = [pipe for pipe in self.all_pipes if pipe.connected_buildings]
         self.links = [pipe for pipe in self.all_pipes if pipe not in self.connectors]
@@ -116,35 +128,57 @@ class ThermosFeatures:
             and feature.geometry().type() == Qgis.GeometryType.Polygon
         )
 
-    def get_building_by_id(self, id_str: str) -> Building | None:
+    def get_building_from_id(self, id_str: str) -> Building | None:
         """Return the building with the given id"""
         return next(bldg for bldg in self.all_buildings if bldg.id == id_str)
 
-    def directly_connected_building(self, pipe: Pipe) -> Building | None:
+    def get_pipe_from_id(self, id_str: str) -> Pipe | None:
+        """Return the pipe with the given id"""
+        return next(pipe for pipe in self.all_pipes if pipe.id == id_str)
+
+    def directly_connected_building(
+        self, pipe: Pipe
+    ) -> list[Building] | Building | None:
         """Return the building directly connected to the given pipe"""
-        buildings_close_to_pipe: list[Building] = [
+        if buildings_close_to_pipe := [
             building
             for building in self.all_buildings
             if any(
                 self.point_near_polygon(point, building.geometry)
                 for point in pipe.geometry.asPolyline()
             )
-        ]
-        if not buildings_close_to_pipe:
-            return None
+        ]:
+            return (
+                buildings_close_to_pipe[0]
+                if len(buildings_close_to_pipe) == 1
+                else buildings_close_to_pipe
+            )
+        return None
 
-        if len(buildings_close_to_pipe) == 1:
-            return buildings_close_to_pipe[0]
+    def clean_up_pipe_connected_to_multi_bldg(self, pipe: Pipe) -> None:
+        """Return the building directly connected to the given pipe,
+        when there are multiple buildings close to it
+        """
+        if not isinstance(pipe.connected_buildings, list):
+            raise ex.PipeNotConnectedToMultipleBuildingsError(pipe)
 
-        return_list: list[Building] = buildings_close_to_pipe.copy()
-        for building in buildings_close_to_pipe:
-            for pip in [pi for pi in self.all_pipes if pi != pipe]:
-                if any(
-                    self.point_near_polygon(point, building.geometry)
-                    for point in pip.geometry.asPolyline()
-                ):
-                    return_list.remove(building)
-        return return_list[0]
+        for building in pipe.connected_buildings:
+            if [
+                pip
+                for pip in [p for p in self.all_pipes if p != pipe]
+                if (
+                    isinstance(pip.connected_buildings, Building)
+                    and pip.connected_buildings == building
+                )
+                or (
+                    isinstance(pip.connected_buildings, list)
+                    and building in pip.connected_buildings
+                )
+            ]:
+                pipe.connected_buildings.remove(building)
+
+        if len(pipe.connected_buildings) == 1:
+            pipe.connected_buildings = pipe.connected_buildings[0]
 
     def point_near_polygon(
         self, point: QgsPointXY, building: QgsGeometry, tolerance: float = 0.01
@@ -161,6 +195,28 @@ class ThermosFeatures:
             building.contains(point_geom)
             or building.intersects(point_geom)
             or distance_area_object.measureLength(shortest_line) < tolerance
+        )
+
+    def problematic_pipes(
+        self, *, return_ids: bool = True
+    ) -> dict[str, list[str]] | dict[str, list[Pipe]]:
+        """Return problematic pipes"""
+        multi: str = "pipes with multiple connected buildings"
+        dic: dict[str, list[Pipe]] = {
+            multi: [
+                pipe
+                for pipe in self.all_pipes
+                if isinstance(pipe.connected_buildings, list)
+                and len(pipe.connected_buildings) > 1
+            ]
+        }
+
+        return (
+            {
+                multi: sorted([p.id for p in dic[multi] if p.id], key=str.lower),
+            }
+            if return_ids
+            else dic
         )
 
     def problematic_buildings(
