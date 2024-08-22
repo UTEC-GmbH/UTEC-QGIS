@@ -198,10 +198,10 @@ class ThermosFeatures:
         )
 
     def problematic_pipes(
-        self, *, return_ids: bool = True
+        self, *, return_ids: bool = True, temp_layer_name: str | None = None
     ) -> dict[str, list[str]] | dict[str, list[Pipe]]:
         """Return problematic pipes"""
-        multi: str = "pipes with multiple connected buildings"
+        multi: str = "pipes connected to multiple buildings"
         dic: dict[str, list[Pipe]] = {
             multi: [
                 pipe
@@ -210,6 +210,14 @@ class ThermosFeatures:
                 and len(pipe.connected_buildings) > 1
             ]
         }
+        features_for_layer: list[QgsFeature] = [pip.feature for pip in dic[multi]]
+        if temp_layer_name:
+            prl.add_temporary_layer(
+                temp_layer_name,
+                group_name="Probleme",
+                layer_type="LineString",
+                features_to_add=features_for_layer,
+            )
 
         return (
             {

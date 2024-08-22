@@ -6,10 +6,12 @@ from dataclasses import dataclass, field
 
 from qgis.core import (
     Qgis,
+    QgsFeature,
     QgsLayerTree,
     QgsLayerTreeGroup,
     QgsMapLayer,
     QgsProject,
+    QgsVectorDataProvider,
     QgsVectorLayer,
 )
 
@@ -42,14 +44,14 @@ class ThermosLayers:
         """Check if the given layer is a pipeline layer"""
         return (
             self.is_thermos_result_layer(layer)
-            and layer.geometryType() == Qgis.GeometryType.Line  # type: ignore[reportArgumentType]
+            and layer.geometryType() == Qgis.GeometryType.Line  # type: ignore[reportArgumentType, attr-defined]
         )
 
     def is_building_layer(self, layer: QgsMapLayer) -> bool:
         """Check if the given layer is a building layer"""
         return (
             self.is_thermos_result_layer(layer)
-            and layer.geometryType() == Qgis.GeometryType.Polygon  # type: ignore[reportArgumentType]
+            and layer.geometryType() == Qgis.GeometryType.Polygon  # type: ignore[reportArgumentType, attr-defined]
         )
 
     def is_thermos_result_layer(self, layer: QgsMapLayer) -> bool:
@@ -111,6 +113,7 @@ def add_temporary_layer(
     group_name: str | None = None,
     layer_type: str = "LineString",
     qgis_project: QgsProject | None = None,
+    features_to_add: list[QgsFeature] | None = None,
 ) -> None:
     """Add a layer to a QGIS project"""
     proj: QgsProject = qgis_project or load_project()
@@ -123,6 +126,12 @@ def add_temporary_layer(
     new_tmp_layer = QgsVectorLayer(layer_type_string, layer_name, "memory")
     if not new_tmp_layer.isValid():
         raise ex.NewLayerInvalidError(layer_name)
+
+    if features_to_add:
+        data_provider: QgsVectorDataProvider | None = new_tmp_layer.dataProvider()
+        if data_provider is None:
+            raise ex.NewLayerInvalidError(layer_name)
+        data_provider.addFeatures(features_to_add)
 
     if group_name:
         # Check if the group exists, if not, create it
