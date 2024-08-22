@@ -78,6 +78,25 @@ class Pipe:
 
 
 @dataclass
+class Knot:
+    """Knot feature"""
+
+    id: str
+    coordinates: QgsPointXY
+    connected_pipes: list[Pipe] | Pipe | None = None
+    connected_buildings: list[Building] | Building | None = None
+
+
+@dataclass
+class Branch:
+    """Branch feature"""
+
+    id: str
+    connected_pipes: list[Pipe] | Pipe | None = None
+    connected_buildings: list[Building] | Building | None = None
+
+
+@dataclass
 class ThermosFeatures:
     """Features and attributes in solution"""
 
