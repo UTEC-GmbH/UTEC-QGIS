@@ -56,8 +56,8 @@ class Pipe:
     id: str | None = None
     connected_buildings: list[Building] | Building | None = None
     connected_pipes: list[Self] | Self | None = None
-    point_id_end: str | None = None
-    point_id_start: str | None = None
+    node_end: Node | None = None
+    node_start: Node | None = None
     diameter: int | None = None
     length: int | None = None
     capacity: int | None = None  # Heizleistung in Leitung
@@ -78,11 +78,12 @@ class Pipe:
 
 
 @dataclass
-class Knot:
-    """Knot feature"""
+class Node:
+    """Node feature"""
 
     id: str
     coordinates: QgsPointXY
+    is_fork: bool = False
     connected_pipes: list[Pipe] | Pipe | None = None
     connected_buildings: list[Building] | Building | None = None
 
@@ -94,6 +95,7 @@ class Branch:
     id: str
     connected_pipes: list[Pipe] | Pipe | None = None
     connected_buildings: list[Building] | Building | None = None
+    connected_to_source: bool = False
 
 
 @dataclass
