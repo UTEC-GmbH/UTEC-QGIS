@@ -128,10 +128,12 @@ def add_temporary_layer(
         raise ex.NewLayerInvalidError(layer_name)
 
     if features_to_add:
+        new_tmp_layer.startEditing()
         data_provider: QgsVectorDataProvider | None = new_tmp_layer.dataProvider()
         if data_provider is None:
             raise ex.NewLayerInvalidError(layer_name)
         data_provider.addFeatures(features_to_add)
+        new_tmp_layer.commitChanges()
 
     if group_name:
         # Check if the group exists, if not, create it
