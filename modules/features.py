@@ -16,6 +16,9 @@ class Building:
     """Building feature"""
 
     feature: QgsFeature
+    id: str | None = None
+    node: Node | None = None
+    pipe: Pipe | None = None
     attributes: dict = field(init=False)
     geometry: QgsGeometry = field(init=False)
     area_roof: float | None = None
@@ -27,9 +30,7 @@ class Building:
     demand_cons_heat: float | None = None
     demand_cons_ww: float | None = None
     height: int | None = None
-    id: str | None = None
     in_solution: bool | None = None
-    point_id_connection: str | None = None
     supply_capacity: int | None = None
 
     def __post_init__(self) -> None:
@@ -39,8 +40,7 @@ class Building:
         for attr in fields(self):
             field_name: str | None = getattr(cont.ThermosFields, attr.name, None)
             if (
-                attr.name not in ["feature", "attributes", "geometry"]
-                and isinstance(field_name, str)
+                isinstance(field_name, str)
                 and isinstance(self.attributes.get(field_name), attr.type)  # type: ignore[argument-type]
             ):
                 setattr(self, attr.name, self.attributes.get(field_name))
@@ -51,13 +51,13 @@ class Pipe:
     """Pipe feature"""
 
     feature: QgsFeature
-    attributes: dict = field(init=False)
-    geometry: QgsGeometry = field(init=False)
     id: str | None = None
-    connected_buildings: list[Building] | Building | None = None
-    connected_pipes: list[Self] | Self | None = None
     node_end: Node | None = None
     node_start: Node | None = None
+    connected_buildings: list[Building] | Building | None = None
+    connected_pipes: list[Self] | Self | None = None
+    attributes: dict = field(init=False)
+    geometry: QgsGeometry = field(init=False)
     diameter: int | None = None
     length: int | None = None
     capacity: int | None = None  # Heizleistung in Leitung
@@ -70,8 +70,7 @@ class Pipe:
         for attr in fields(self):
             field_name: str | None = getattr(cont.ThermosFields, attr.name, None)
             if (
-                attr.name not in ["feature", "attributes", "geometry"]
-                and isinstance(field_name, str)
+                isinstance(field_name, str)
                 and isinstance(self.attributes.get(field_name), attr.type)  # type: ignore[argument-type]
             ):
                 setattr(self, attr.name, self.attributes.get(field_name))
@@ -84,8 +83,8 @@ class Node:
     id: str
     coordinates: QgsPointXY
     is_fork: bool = False
-    connected_pipes: list[Pipe] | Pipe | None = None
-    connected_buildings: list[Building] | Building | None = None
+    bilding: Building | None = None
+    pipes: list[Pipe] | Pipe | None = None
 
 
 @dataclass
@@ -93,13 +92,13 @@ class Branch:
     """Branch feature"""
 
     id: str
-    connected_pipes: list[Pipe] | Pipe | None = None
-    connected_buildings: list[Building] | Building | None = None
     connected_to_source: bool = False
+    buildings: list[Building] | Building | None = None
+    pipes: list[Pipe] | Pipe | None = None
 
 
 @dataclass
-class ThermosFeatures:
+class Network:
     """Features and attributes in solution"""
 
     all_pipes: list[Pipe] = field(init=False)
