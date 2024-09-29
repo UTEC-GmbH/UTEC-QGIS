@@ -1,6 +1,6 @@
 """Project and Layers"""
 
-# pylint: disable=no-name-in-module
+# pylint: disable=[no-name-in-module]
 
 from dataclasses import dataclass, field
 
@@ -42,14 +42,14 @@ class ThermosLayers:
         """Check if the given layer is a pipeline layer"""
         return (
             self.is_thermos_result_layer(layer)
-            and layer.geometryType() == Qgis.GeometryType.Line  # type: ignore[reportArgumentType]
+            and layer.geometryType() == Qgis.GeometryType.Line  # type: ignore[AttributeAccessIssue, attr-defined]
         )
 
     def is_building_layer(self, layer: QgsMapLayer) -> bool:
         """Check if the given layer is a building layer"""
         return (
             self.is_thermos_result_layer(layer)
-            and layer.geometryType() == Qgis.GeometryType.Polygon  # type: ignore[reportArgumentType]
+            and layer.geometryType() == Qgis.GeometryType.Polygon  # type: ignore[AttributeAccessIssue, attr-defined]
         )
 
     def is_thermos_result_layer(self, layer: QgsMapLayer) -> bool:

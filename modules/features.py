@@ -1,6 +1,8 @@
 """Features and attributes"""
 
-# pylint: disable=no-name-in-module
+# pylint: disable=[no-name-in-module, used-before-assignment]
+# ruff: noqa: F821
+
 from dataclasses import dataclass, field, fields
 from typing import Self
 
@@ -17,8 +19,8 @@ class Building:
 
     feature: QgsFeature
     id: str | None = None
-    node: Node | None = None
-    pipe: Pipe | None = None
+    node: Node | None = None  # type: ignore[reportUndefinedVariable]
+    pipe: Pipe | None = None  # type: ignore[reportUndefinedVariable]
     attributes: dict = field(init=False)
     geometry: QgsGeometry = field(init=False)
     area_roof: float | None = None
@@ -52,8 +54,8 @@ class Pipe:
 
     feature: QgsFeature
     id: str | None = None
-    node_end: Node | None = None
-    node_start: Node | None = None
+    node_end: Node | None = None  # type: ignore[reportUndefinedVariable]
+    node_start: Node | None = None  # type: ignore[reportUndefinedVariable]
     connected_buildings: list[Building] | Building | None = None
     connected_pipes: list[Self] | Self | None = None
     attributes: dict = field(init=False)
