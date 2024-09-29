@@ -1,10 +1,9 @@
 """Features and attributes"""
 
-# pylint: disable=[no-name-in-module, used-before-assignment]
-# ruff: noqa: F821
+# pylint: disable=[no-name-in-module]
 
 from dataclasses import dataclass, field, fields
-from typing import Self
+from typing import Self, cast
 
 from qgis.core import Qgis, QgsDistanceArea, QgsFeature, QgsGeometry, QgsPointXY
 
@@ -19,8 +18,8 @@ class Building:
 
     feature: QgsFeature
     id: str | None = None
-    node: Node | None = None  # type: ignore[reportUndefinedVariable]
-    pipe: Pipe | None = None  # type: ignore[reportUndefinedVariable]
+    node: "Node | None" = None
+    pipe: "Pipe | None" = None
     attributes: dict = field(init=False)
     geometry: QgsGeometry = field(init=False)
     area_roof: float | None = None
@@ -41,9 +40,9 @@ class Building:
         self.geometry = self.feature.geometry()
         for attr in fields(self):
             field_name: str | None = getattr(cont.ThermosFields, attr.name, None)
-            if (
-                isinstance(field_name, str)
-                and isinstance(self.attributes.get(field_name), attr.type)  # type: ignore[argument-type]
+            if isinstance(field_name, str) and isinstance(
+                self.attributes.get(field_name),
+                attr.type,  # type: ignore[argument-type]
             ):
                 setattr(self, attr.name, self.attributes.get(field_name))
 
@@ -54,8 +53,8 @@ class Pipe:
 
     feature: QgsFeature
     id: str | None = None
-    node_end: Node | None = None  # type: ignore[reportUndefinedVariable]
-    node_start: Node | None = None  # type: ignore[reportUndefinedVariable]
+    node_start: "Node | None" = None
+    node_end: "Node | None" = None
     connected_buildings: list[Building] | Building | None = None
     connected_pipes: list[Self] | Self | None = None
     attributes: dict = field(init=False)
@@ -69,11 +68,19 @@ class Pipe:
         """Fill class attributes"""
         self.attributes = self.feature.attributeMap()
         self.geometry = self.feature.geometry()
+        self.node_start = Node(
+            self.geometry.asPolyline()[0],
+            cast(str | None, self.attributes.get(cont.ThermosFields.point_id_start)),
+        )
+        self.node_end = Node(
+            self.geometry.asPolyline()[-1],
+            cast(str | None, self.attributes.get(cont.ThermosFields.point_id_end)),
+        )
         for attr in fields(self):
             field_name: str | None = getattr(cont.ThermosFields, attr.name, None)
-            if (
-                isinstance(field_name, str)
-                and isinstance(self.attributes.get(field_name), attr.type)  # type: ignore[argument-type]
+            if isinstance(field_name, str) and isinstance(
+                self.attributes.get(field_name),
+                attr.type,  # type: ignore[argument-type]
             ):
                 setattr(self, attr.name, self.attributes.get(field_name))
 
@@ -82,11 +89,15 @@ class Pipe:
 class Node:
     """Node feature"""
 
-    id: str
     coordinates: QgsPointXY
+    id: str | None = None
     is_fork: bool = False
-    bilding: Building | None = None
+    building: Building | None = None
     pipes: list[Pipe] | Pipe | None = None
+
+    def __hash__(self) -> int:
+        """Hash from coordinates"""
+        return hash((self.coordinates.x(), self.coordinates.y()))
 
 
 @dataclass
@@ -104,7 +115,9 @@ class Network:
     """Features and attributes in solution"""
 
     all_pipes: list[Pipe] = field(init=False)
+    all_nodes: set[Node] = field(init=False)
     all_buildings: list[Building] = field(init=False)
+    forks: list[Node] = field(init=False)
     connectors: list[Pipe] = field(init=False)
     links: list[Pipe] = field(init=False)
 
@@ -116,6 +129,7 @@ class Network:
             for feat in list(thermos_layers.pipes.getFeatures())  # type: ignore[reportArgumentType]
             if self.check_pipe(feat)
         ]
+
         self.all_buildings = [
             Building(feat)
             for feat in list(thermos_layers.buildings.getFeatures())  # type: ignore[reportArgumentType]
@@ -135,6 +149,23 @@ class Network:
 
         self.connectors = [pipe for pipe in self.all_pipes if pipe.connected_buildings]
         self.links = [pipe for pipe in self.all_pipes if pipe not in self.connectors]
+
+        self.all_nodes = {
+            node
+            for pipe in self.all_pipes
+            for node in (pipe.node_start, pipe.node_end)
+            if node is not None
+        }
+
+        for node in self.all_nodes:
+            node.pipes = [
+                pipe
+                for pipe in self.all_pipes
+                if node in (pipe.node_start, pipe.node_end)
+            ]
+            node.is_fork = len([pipe for pipe in node.pipes if pipe in self.links]) > 2  # noqa: PLR2004
+
+        self.forks = [node for node in self.all_nodes if node.is_fork]
 
     def check_pipe(self, feature: QgsFeature) -> bool:
         """Check if a given feature is a pipe"""
