@@ -2,7 +2,9 @@
 
 from dataclasses import dataclass
 
-TEST_PROJECT_PATH: str = "Thermos Output for Testing/thermos.qgz"
+TEST_PROJECT_PATH: str = "thermos_output_for_testing/thermos_output_full.qgz"
+TEST_MINI_PROJECT_PATH: str = "thermos_output_for_testing/thermos_output_mini.qgz"
+
 
 
 @dataclass

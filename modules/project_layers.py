@@ -30,7 +30,8 @@ class ThermosLayers:
         if not project:
             raise ex.NoProjectError
         if not project.mapLayers():
-            project.read(cont.TEST_PROJECT_PATH)
+            # project.read(cont.TEST_PROJECT_PATH)
+            project.read(cont.TEST_MINI_PROJECT_PATH)
 
         for layer in project.mapLayers().values():
             if self.is_pipeline_layer(layer):
