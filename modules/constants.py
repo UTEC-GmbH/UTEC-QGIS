@@ -2,9 +2,8 @@
 
 from dataclasses import dataclass
 
-TEST_PROJECT_PATH: str = "thermos_output_for_testing/thermos_output_full.qgz"
-TEST_MINI_PROJECT_PATH: str = "thermos_output_for_testing/thermos_output_mini.qgz"
-
+# TEST_PROJECT_PATH: str = "thermos_output_for_testing/thermos_output_full.qgz"
+TEST_PROJECT_PATH: str = "thermos_output_for_testing/thermos_output_mini.qgz"
 
 
 @dataclass
@@ -21,6 +20,7 @@ class ThermosFields:
     demand_cons_cooling: str = "cooling/kwh"
     demand_cons_heat: str = "demand/kwh"
     diameter: str = "solution/diameter-mm"
+    fid: str = "fid"
     height: str = "candidate/user-fields Height"
     id: str = "id"
     in_solution: str = "solution/included"

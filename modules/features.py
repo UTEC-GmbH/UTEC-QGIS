@@ -18,10 +18,12 @@ class Building:
 
     feature: QgsFeature
     id: str | None = None
+    fid: int | None = None
     node: "Node | None" = None
     pipe: "Pipe | None" = None
     attributes: dict = field(init=False)
     geometry: QgsGeometry = field(init=False)
+    is_supply: bool = False
     area_roof: float | None = None
     area_ground: float | None = None
     demand_cap_cooling: float | None = None
@@ -33,6 +35,14 @@ class Building:
     height: int | None = None
     in_solution: bool | None = None
     supply_capacity: int | None = None
+
+    def __hash__(self) -> int:
+        """Hash from ids"""
+        return hash((self.id, self.fid))
+
+    def __repr__(self) -> str:
+        """Show Building representation"""
+        return f"Building {self.fid}"
 
     def __post_init__(self) -> None:
         """Fill class attributes"""
@@ -46,6 +56,8 @@ class Building:
             ):
                 setattr(self, attr.name, self.attributes.get(field_name))
 
+        self.is_supply = self.supply_capacity is not None
+
 
 @dataclass
 class Pipe:
@@ -53,16 +65,27 @@ class Pipe:
 
     feature: QgsFeature
     id: str | None = None
-    node_start: "Node | None" = None
-    node_end: "Node | None" = None
-    connected_buildings: list[Building] | Building | None = None
-    connected_pipes: list[Self] | Self | None = None
+    fid: int | None = None
+    node_start: "Node" = field(init=False)
+    node_end: "Node" = field(init=False)
+    connected_buildings: list[Building] | None = None
+    connected_pipes: list[Self] | None = None
+    is_branch_end: bool = False
+    branch: "Branch | None" = None
     attributes: dict = field(init=False)
     geometry: QgsGeometry = field(init=False)
     diameter: int | None = None
     length: int | None = None
     capacity: int | None = None  # Heizleistung in Leitung
     diversity: float | None = None  # Gleichzeitigkeitsfaktor
+
+    def __hash__(self) -> int:
+        """Hash from ids"""
+        return hash((self.id, self.fid))
+
+    def __repr__(self) -> str:
+        """Pipe representation"""
+        return f"Pipe {self.fid} (id: {self.id})"
 
     def __post_init__(self) -> None:
         """Fill class attributes"""
@@ -92,6 +115,7 @@ class Node:
     coordinates: QgsPointXY
     id: str | None = None
     is_fork: bool = False
+    is_branch_end: bool = False
     building: Building | None = None
     pipes: list[Pipe] | Pipe | None = None
 
@@ -106,8 +130,8 @@ class Branch:
 
     id: str
     connected_to_source: bool = False
-    buildings: list[Building] | Building | None = None
-    pipes: list[Pipe] | Pipe | None = None
+    buildings: list[Building] | None = None
+    pipes: list[Pipe] | None = None
 
 
 @dataclass
@@ -115,11 +139,20 @@ class Network:
     """Features and attributes in solution"""
 
     all_pipes: list[Pipe] = field(init=False)
-    all_nodes: set[Node] = field(init=False)
+    all_nodes: list[Node] = field(init=False)
     all_buildings: list[Building] = field(init=False)
     forks: list[Node] = field(init=False)
     connectors: list[Pipe] = field(init=False)
     links: list[Pipe] = field(init=False)
+
+    def __repr__(self) -> str:
+        """Network representation"""
+        return f"""
+    {len(self.all_pipes)} pipes, 
+    {len(self.all_buildings)} buildings, 
+    {len(self.forks)} forks, 
+    {len(self.connectors)} connectors, 
+    {len(self.links)} links"""
 
     def __post_init__(self) -> None:
         """Fill class attributes"""
@@ -136,9 +169,11 @@ class Network:
             if self.check_building(feat)
         ]
 
+        # pipes with direktly connected buildings
         for pipe in self.all_pipes:
-            pipe.connected_buildings = self.directly_connected_building(pipe)
+            self.directly_connected_building(pipe)
 
+        # clean up pipes with multiple connected buildings
         for pipe in [
             pip
             for pip in self.all_pipes
@@ -147,15 +182,19 @@ class Network:
         ]:
             self.clean_up_pipe_connected_to_multi_bldg(pipe)
 
+        # connectors and links (pipes without directly connected buildings)
         self.connectors = [pipe for pipe in self.all_pipes if pipe.connected_buildings]
         self.links = [pipe for pipe in self.all_pipes if pipe not in self.connectors]
 
-        self.all_nodes = {
-            node
-            for pipe in self.all_pipes
-            for node in (pipe.node_start, pipe.node_end)
-            if node is not None
-        }
+        # nodes
+        self.all_nodes = list(
+            {
+                node
+                for pipe in self.all_pipes
+                for node in (pipe.node_start, pipe.node_end)
+                if node is not None
+            }
+        )
 
         for node in self.all_nodes:
             node.pipes = [
@@ -166,6 +205,10 @@ class Network:
             node.is_fork = len([pipe for pipe in node.pipes if pipe in self.links]) > 2  # noqa: PLR2004
 
         self.forks = [node for node in self.all_nodes if node.is_fork]
+
+        # connected pipes of pipes
+        for pipe in self.all_pipes:
+            self.find_connected_pipes(pipe)
 
     def check_pipe(self, feature: QgsFeature) -> bool:
         """Check if a given feature is a pipe"""
@@ -189,24 +232,40 @@ class Network:
         """Return the pipe with the given id"""
         return next(pipe for pipe in self.all_pipes if pipe.id == id_str)
 
-    def directly_connected_building(
-        self, pipe: Pipe
-    ) -> list[Building] | Building | None:
-        """Return the building directly connected to the given pipe"""
-        if buildings_close_to_pipe := [
+    def find_connected_pipes(self, pipe: Pipe) -> None:
+        """Return pipes connected to the given pipe"""
+        node_ids: set[str] = {
+            node.id
+            for node in [pipe.node_start, pipe.node_end]
+            if node and isinstance(node.id, str)
+        }
+
+        pipe.connected_pipes = list(
+            {
+                pip
+                for pip in [p for p in self.all_pipes if p != pipe]
+                if (pip.node_start is not None and pip.node_start.id in node_ids)
+                or (pip.node_end is not None and pip.node_end.id in node_ids)
+            }
+        )
+        if (
+            pipe.connected_pipes is not None
+            and len(pipe.connected_pipes) == 1
+            and pipe.connected_buildings is not None
+            and all(buil.is_supply is False for buil in pipe.connected_buildings)
+        ):
+            pipe.is_branch_end = True
+
+    def directly_connected_building(self, pipe: Pipe) -> None:
+        """Set the building directly connected to the given pipe"""
+        pipe.connected_buildings = [
             building
             for building in self.all_buildings
             if any(
                 self.point_near_polygon(point, building.geometry)
                 for point in pipe.geometry.asPolyline()
             )
-        ]:
-            return (
-                buildings_close_to_pipe[0]
-                if len(buildings_close_to_pipe) == 1
-                else buildings_close_to_pipe
-            )
-        return None
+        ]
 
     def clean_up_pipe_connected_to_multi_bldg(self, pipe: Pipe) -> None:
         """Return the building directly connected to the given pipe,
@@ -229,9 +288,6 @@ class Network:
                 )
             ]:
                 pipe.connected_buildings.remove(building)
-
-        if len(pipe.connected_buildings) == 1:
-            pipe.connected_buildings = pipe.connected_buildings[0]
 
     def point_near_polygon(
         self, point: QgsPointXY, building: QgsGeometry, tolerance: float = 0.01
